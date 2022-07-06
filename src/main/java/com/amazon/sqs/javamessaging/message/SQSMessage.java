@@ -30,10 +30,12 @@ import javax.jms.MessageFormatException;
 import javax.jms.MessageNotWriteableException;
 
 import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch;
+import com.amazon.sqs.javamessaging.SQSMessageProducer;
 import com.amazon.sqs.javamessaging.SQSMessagingClientConstants;
 import com.amazon.sqs.javamessaging.SQSQueueDestination;
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
 import com.amazonaws.services.sqs.model.MessageAttributeValue;
+import org.apache.commons.logging.LogFactory;
 
 import static com.amazon.sqs.javamessaging.SQSMessagingClientConstants.*;
 
@@ -158,10 +160,20 @@ public class SQSMessage implements Message {
         writePermissionsForProperties = true;
     }
 
+    // TODO: do something to handle unsupported DataTypes instead of Exception
+    // TODO: Default: log a message, otherwise use a registered handler (future)
     private void addMessageAttributes(com.amazonaws.services.sqs.model.Message sqsMessage) throws JMSException {
         for (Entry<String, MessageAttributeValue> entry : sqsMessage.getMessageAttributes().entrySet()) {
-            properties.put(entry.getKey(), new JMSMessagePropertyValue(
-                    entry.getValue().getStringValue(), entry.getValue().getDataType()));
+            // getDataType: one of String, Number, and Binary.
+            String type = entry.getValue().getDataType();
+            if (type != null && (type.startsWith(STRING) || type.startsWith(NUMBER))) {
+                properties.put(entry.getKey(), new JMSMessagePropertyValue(
+                        entry.getValue().getStringValue(), entry.getValue().getDataType()));
+            } else if (BINARY.equals(type)) {
+                // if Binary, getBinaryValue() should be used but should require an userland mapper
+                // TODO but for now we're just going to log and skip it
+                LogFactory.getLog(SQSMessage.class).warn("MessageAttribute with BINARY key: " + entry.getKey());
+            }
         }
     }
 
@@ -1128,7 +1140,7 @@ public class SQSMessage implements Message {
      * attribute type and message attribute string value.
      */
     public static class JMSMessagePropertyValue {
-        
+
         private final Object value;
 
         private final String type;
@@ -1211,6 +1223,9 @@ public class SQSMessage implements Message {
                 return Short.valueOf(value);
             } else if (type != null && (type.startsWith(STRING) || type.startsWith(NUMBER))) {
                 return value;
+            } else if (BINARY.equals(type)) {
+                // This is a safety catch for binary type
+                return null;
             } else {
                 throw new JMSException(type + " is not a supported JMS property type");
             }
