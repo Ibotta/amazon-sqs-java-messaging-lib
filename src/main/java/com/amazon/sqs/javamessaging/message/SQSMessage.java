@@ -164,14 +164,20 @@ public class SQSMessage implements Message {
     // TODO: Default: log a message, otherwise use a registered handler (future)
     private void addMessageAttributes(com.amazonaws.services.sqs.model.Message sqsMessage) throws JMSException {
         for (Entry<String, MessageAttributeValue> entry : sqsMessage.getMessageAttributes().entrySet()) {
+            // transform Key to conform to `\w` (alphanum_) only.
+            // TODO make this a userland transformer, or use a default
+            String key = entry.getKey();
+            String sanitizedKey = key.replaceAll("[\\W$]", "_");
+
             // getDataType: one of String, Number, and Binary.
             String type = entry.getValue().getDataType();
             if (type != null && (type.startsWith(STRING) || type.startsWith(NUMBER))) {
-                properties.put(entry.getKey(), new JMSMessagePropertyValue(
+                properties.put(sanitizedKey, new JMSMessagePropertyValue(
                         entry.getValue().getStringValue(), entry.getValue().getDataType()));
             } else if (BINARY.equals(type)) {
                 // if Binary, getBinaryValue() should be used but should require an userland mapper
-                // TODO but for now we're just going to log and skip it
+                // it must map to one of Boolean, Byte, Short, Integer, Long, Float, Double, and String.
+                // TODO userland mapper, but for now we're just going to log and skip it. The key won't be added
                 LogFactory.getLog(SQSMessage.class).warn("MessageAttribute with BINARY key: " + entry.getKey());
             }
         }

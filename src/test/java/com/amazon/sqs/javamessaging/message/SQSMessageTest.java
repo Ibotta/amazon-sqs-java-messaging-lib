@@ -37,6 +37,8 @@ import javax.jms.MessageNotWriteableException;
 
 import junit.framework.Assert;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -55,6 +57,9 @@ public class SQSMessageTest {
     final String myString = "myString";
     final String myCustomString = "myCustomString";
     final String myNumber = "myNumber";
+
+    final String binaryString = "myBinaryString";
+    final ByteBuffer myBinaryString = ByteBuffer.wrap(binaryString.getBytes(StandardCharsets.UTF_8));
 
     @Before
     public void setup() {
@@ -335,6 +340,10 @@ public class SQSMessageTest {
                                                     .withDataType(SQSMessagingClientConstants.NUMBER)
                                                     .withStringValue("500"));
 
+        messageAttributes.put(binaryString, new MessageAttributeValue()
+                .withDataType(SQSMessagingClientConstants.BINARY)
+                .withBinaryValue(myBinaryString));
+
         com.amazonaws.services.sqs.model.Message sqsMessage = new com.amazonaws.services.sqs.model.Message()
                 .withMessageAttributes(messageAttributes)
                 .withAttributes(systemAttributes)
@@ -392,6 +401,9 @@ public class SQSMessageTest {
         Assert.assertEquals(message.getFloatProperty(myNumber), 500f);
         Assert.assertEquals(message.getDoubleProperty(myNumber), 500d);
 
+        // Assert that the binary doesn't get set
+        Assert.assertFalse(message.propertyExists(binaryString));
+        Assert.assertNull(message.getObjectProperty(binaryString));
 
         // Validate property names
         Set<String> propertyNamesSet = new HashSet<String>(Arrays.asList(
@@ -426,8 +438,71 @@ public class SQSMessageTest {
         Assert.assertFalse(message.propertyExists("myByteProperty"));
         Assert.assertFalse(message.propertyExists("myString"));
         Assert.assertFalse(message.propertyExists("myNumber"));
+        Assert.assertFalse(message.propertyExists("myBinaryString"));
 
         propertyNames = message.getPropertyNames();
         assertFalse(propertyNames.hasMoreElements());
     }
+
+    /**
+     * Test using SQS message attribute during SQS Message constructing
+     */
+    @Test
+    public void testSQSMessageAttributeRenaming() throws JMSException {
+
+        Acknowledger ack = mock(Acknowledger.class);
+
+        Map<String,String> systemAttributes = new HashMap<String, String>();
+        systemAttributes.put(APPROXIMATE_RECEIVE_COUNT, "100");
+
+        Map<String, MessageAttributeValue> messageAttributes = new HashMap<String, MessageAttributeValue>();
+
+        // TODO key string that would normally break
+        messageAttributes.put("foo-bar-baz", new MessageAttributeValue()
+                .withDataType(SQSMessagingClientConstants.STRING)
+                .withStringValue("StringValue"));
+
+        // TODO string that would really badly break
+        messageAttributes.put("this!has+no^chill", new MessageAttributeValue()
+                .withDataType(SQSMessagingClientConstants.NUMBER + ".custom")
+                .withStringValue("['one', 'two']"));
+
+        com.amazonaws.services.sqs.model.Message sqsMessage = new com.amazonaws.services.sqs.model.Message()
+                .withMessageAttributes(messageAttributes)
+                .withAttributes(systemAttributes)
+                .withMessageId("messageId")
+                .withReceiptHandle("ReceiptHandle");
+
+        SQSMessage message = new SQSMessage(ack, "QueueUrl", sqsMessage);
+
+        Assert.assertTrue(message.propertyExists("foo_bar_baz"));
+        Assert.assertEquals(message.getObjectProperty("foo_bar_baz"), "StringValue");
+        Assert.assertEquals(message.getStringProperty("foo_bar_baz"), "StringValue");
+
+        Assert.assertTrue(message.propertyExists("this_has_no_chill"));
+        Assert.assertEquals(message.getObjectProperty("this_has_no_chill"), "['one', 'two']");
+        Assert.assertEquals(message.getStringProperty("this_has_no_chill"), "['one', 'two']");
+
+        // Validate property names
+        Set<String> propertyNamesSet = new HashSet<String>(Arrays.asList(
+                "foo_bar_baz",
+                "this_has_no_chill",
+                JMSX_DELIVERY_COUNT));
+
+        Enumeration<String > propertyNames = message.getPropertyNames();
+        int counter = 0;
+        while (propertyNames.hasMoreElements()) {
+            assertTrue(propertyNamesSet.contains(propertyNames.nextElement()));
+            counter++;
+        }
+        assertEquals(propertyNamesSet.size(), counter);
+
+        message.clearProperties();
+        Assert.assertFalse(message.propertyExists("foo_bar_baz"));
+        Assert.assertFalse(message.propertyExists("this_has_no_chill"));
+
+        propertyNames = message.getPropertyNames();
+        assertFalse(propertyNames.hasMoreElements());
+    }
+
 }
