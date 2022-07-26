@@ -30,7 +30,6 @@ import javax.jms.MessageFormatException;
 import javax.jms.MessageNotWriteableException;
 
 import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch;
-import com.amazon.sqs.javamessaging.SQSMessageProducer;
 import com.amazon.sqs.javamessaging.SQSMessagingClientConstants;
 import com.amazon.sqs.javamessaging.SQSQueueDestination;
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
@@ -160,25 +159,28 @@ public class SQSMessage implements Message {
         writePermissionsForProperties = true;
     }
 
-    // TODO: do something to handle unsupported DataTypes instead of Exception
-    // TODO: Default: log a message, otherwise use a registered handler (future)
     private void addMessageAttributes(com.amazonaws.services.sqs.model.Message sqsMessage) throws JMSException {
         for (Entry<String, MessageAttributeValue> entry : sqsMessage.getMessageAttributes().entrySet()) {
-            // transform Key to conform to `\w` (alphanum_) only.
-            // TODO make this a userland transformer, or use a default
+            // transform Key to conform to java-identifier (alphanum_) mostly. also allows `.$` in the spec.
+            // TODO make this a userland transformer, with this default
+            // other libraries use like `_$dash$_ etc
             String key = entry.getKey();
-            String sanitizedKey = key.replaceAll("[\\W$]", "_");
+            String sanitizedKey = key.replaceAll("[^\\w$.]", "_");
 
-            // getDataType: one of String, Number, and Binary.
             String type = entry.getValue().getDataType();
             if (type != null && (type.startsWith(STRING) || type.startsWith(NUMBER))) {
+                //Supported directly by JMSMessagePropertyValue as a String
                 properties.put(sanitizedKey, new JMSMessagePropertyValue(
                         entry.getValue().getStringValue(), entry.getValue().getDataType()));
             } else if (BINARY.equals(type)) {
-                // if Binary, getBinaryValue() should be used but should require an userland mapper
+                // if Binary, getBinaryValue() should be used but requires an userland mapper
                 // it must map to one of Boolean, Byte, Short, Integer, Long, Float, Double, and String.
                 // TODO userland mapper, but for now we're just going to log and skip it. The key won't be added
                 LogFactory.getLog(SQSMessage.class).warn("MessageAttribute with BINARY key: " + entry.getKey());
+            } else {
+                // this is an unknown type. By default, throw an exception
+                // TODO allow a userland mapper?
+                throw new JMSException(type + " is not a supported JMS property type for key " + key);
             }
         }
     }

@@ -448,6 +448,43 @@ public class SQSMessageTest {
      * Test using SQS message attribute during SQS Message constructing
      */
     @Test
+    public void testSQSUnknownType() throws JMSException {
+
+        Acknowledger ack = mock(Acknowledger.class);
+
+        Map<String,String> systemAttributes = new HashMap<String, String>();
+        systemAttributes.put(APPROXIMATE_RECEIVE_COUNT, "100");
+
+        Map<String, MessageAttributeValue> messageAttributes = new HashMap<String, MessageAttributeValue>();
+
+        messageAttributes.put(myString, new MessageAttributeValue()
+                .withDataType(SQSMessagingClientConstants.STRING)
+                .withStringValue("StringValue"));
+
+        messageAttributes.put("arbitrary", new MessageAttributeValue()
+                .withDataType("Arbitrary")
+                .withStringValue("ArbitraryValue"));
+
+        com.amazonaws.services.sqs.model.Message sqsMessage = new com.amazonaws.services.sqs.model.Message()
+                .withMessageAttributes(messageAttributes)
+                .withAttributes(systemAttributes)
+                .withMessageId("messageId")
+                .withReceiptHandle("ReceiptHandle");
+
+        boolean caught = false;
+        try {
+            SQSMessage message = new SQSMessage(ack, "QueueUrl", sqsMessage);
+        } catch (JMSException e) {
+            caught = true;
+        }
+
+        assertTrue(caught);
+    }
+
+    /**
+     * Test using SQS message attribute during SQS Message constructing
+     */
+    @Test
     public void testSQSMessageAttributeRenaming() throws JMSException {
 
         Acknowledger ack = mock(Acknowledger.class);
